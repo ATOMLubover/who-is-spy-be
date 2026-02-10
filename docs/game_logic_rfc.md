@@ -17,7 +17,7 @@
 
 ### 2.1 状态列表
 
-除了现有的 `STATUS_WAITING`，我们将实现以下状态：
+除了现有的 `STAGE_WAITING`，我们将实现以下状态：
 
 1.  **Preparing (准备阶段)**: 分配身份，分配词语，初始化游戏轮次信息。
 2.  **Speaking (发言阶段)**: 玩家按顺序描述词语。
@@ -56,7 +56,7 @@
   - 广播 `StageChange` (进入发言阶段)。
   - 广播 `TurnChange` (通知第一个玩家发言)。
 - **处理 (`OnHandle`)**:
-  - 接受 `DescribeRequest` (描述请求)。
+  - 接受 `DescribeRequest` (描述请求)。每个人的发言时间最多为 20 秒。
   - 验证是否轮到该玩家。
   - 广播 `DescribeResponse` (包含 `SpeakerID`, `Message`)。
   - `CurrentSpeakerIndex++`。
@@ -68,7 +68,7 @@
 - **数据**:
   - `Votes`: map[string]string (投票者ID -> 被投者ID)。
 - **入口逻辑**:
-  - 广播 `StageChange` (进入投票阶段)。
+  - 广播 `StageChange` (进入投票阶段)。投票阶段时间为 30 秒。
   - 清空 `Votes`。
 - **处理 (`OnHandle`)**:
   - 接受 `VoteRequest` (投票请求)。
@@ -89,7 +89,7 @@
       - **Continue**: 否则 -> `Round++`。
   5.  **转换**:
       - 胜负已分 -> 转换到 `Finished`。
-      - 未分胜负 -> 转换到 `Speaking` (保持剩余玩家顺序)。
+      - 未分胜负 -> 转换到 `Speaking` (保持剩余玩家顺序)。未分出胜负情况下，10 秒后进入下一轮 Speaking。
 
 #### F. Finished (结束阶段)
 
@@ -119,7 +119,7 @@ type GameContext struct {
 
     // 词汇信息
     AnswerWord        string
-    UndercoverWord           string
+    SpyWord                string
 }
 ```
 

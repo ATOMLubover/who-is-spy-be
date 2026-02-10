@@ -11,6 +11,9 @@ const (
 	REQ_JOIN_GAME  = "JoinGame"
 	REQ_SET_WORDS  = "SetWords"
 	REQ_START_GAME = "StartGame"
+	REQ_DESCRIBE   = "Describe"
+	REQ_VOTE       = "Vote"
+	REQ_TIMEOUT    = "Timeout"
 )
 
 type RequestWrapper struct {
@@ -78,11 +81,78 @@ func TryUnwrapStartGameRequest(wrapper RequestWrapper) *StartGameRequest {
 	return &startGameRequest
 }
 
+func TryUnwrapDescribeRequest(wrapper RequestWrapper) *DescribeRequest {
+	if wrapper.ReqType != REQ_DESCRIBE {
+		return nil
+	}
+
+	var describeRequest DescribeRequest
+
+	err := json.Unmarshal(wrapper.Data, &describeRequest)
+	if err != nil {
+		zap.L().Error(
+			"Failed to unwrap DescribeRequest",
+			zap.Error(err),
+			zap.Any("wrapper", wrapper),
+		)
+		return nil
+	}
+
+	return &describeRequest
+}
+
+func TryUnwrapVoteRequest(wrapper RequestWrapper) *VoteRequest {
+	if wrapper.ReqType != REQ_VOTE {
+		return nil
+	}
+
+	var voteRequest VoteRequest
+
+	err := json.Unmarshal(wrapper.Data, &voteRequest)
+	if err != nil {
+		zap.L().Error(
+			"Failed to unwrap VoteRequest",
+			zap.Error(err),
+			zap.Any("wrapper", wrapper),
+		)
+		return nil
+	}
+
+	return &voteRequest
+}
+
+func TryUnwrapTimeoutRequest(wrapper RequestWrapper) *TimeoutRequest {
+	if wrapper.ReqType != REQ_TIMEOUT {
+		return nil
+	}
+
+	var timeoutRequest TimeoutRequest
+
+	err := json.Unmarshal(wrapper.Data, &timeoutRequest)
+	if err != nil {
+		zap.L().Error(
+			"Failed to unwrap TimeoutRequest",
+			zap.Error(err),
+			zap.Any("wrapper", wrapper),
+		)
+		return nil
+	}
+
+	return &timeoutRequest
+}
+
 // 响应类型
 const (
-	RESP_JOIN_GAME  = "JoinGame"
-	RESP_SET_WORDS  = "SetWords"
-	RESP_START_GAME = "StartGame"
+	RESP_ERROR = "Error"
+
+	RESP_JOIN_GAME   = "JoinGame"
+	RESP_SET_WORDS   = "SetWords"
+	RESP_START_GAME  = "StartGame"
+	RESP_DESCRIBE    = "Describe"
+	RESP_VOTE        = "Vote"
+	RESP_GAME_STATE  = "GameState"
+	RESP_ELIMINATE   = "Eliminate"
+	RESP_GAME_RESULT = "GameResult"
 )
 
 type ResponseWrapper struct {
@@ -100,6 +170,7 @@ func WrapResponse(respType string, data any) ResponseWrapper {
 
 func WrapErrResponse(errMsg string) ResponseWrapper {
 	return ResponseWrapper{
-		ErrMsg: errMsg,
+		RespType: RESP_ERROR,
+		ErrMsg:   errMsg,
 	}
 }

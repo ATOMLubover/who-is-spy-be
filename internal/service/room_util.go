@@ -1,6 +1,6 @@
 package service
 
-import "undercover-be/internal/service/dto"
+import "who-is-spy-be/internal/service/dto"
 
 type RoomRequestAction struct {
 	JoinRoomReq    *dto.JoinRoomRequest

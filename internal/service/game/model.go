@@ -16,6 +16,6 @@ type Player struct {
 	Role string `json:"role"`
 	Word string `json:"word,omitempty"`
 
-	ReqCh  chan RequestWrapper
+	// ReqCh  chan RequestWrapper
 	RespCh chan ResponseWrapper
 }

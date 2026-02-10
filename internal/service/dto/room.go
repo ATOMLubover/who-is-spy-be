@@ -1,12 +1,12 @@
 package dto
 
 const (
-	STATUS_WAITING   = "Waiting"
-	STATUS_PREPARING = "Preparing"
-	STATUS_SPEAKING  = "Speaking"
-	STATUS_VOTING    = "Voting"
-	STATUS_JUDGING   = "Judging"
-	// STATUS_FINISHED  = "Finished"
+	STAGE_WAITING   = "Waiting"
+	STAGE_PREPARING = "Preparing"
+	STAGE_SPEAKING  = "Speaking"
+	STAGE_VOTING    = "Voting"
+	STAGE_JUDGING   = "Judging"
+	// STAGE_FINISHED  = "Finished"
 )
 
 type Room struct {
@@ -19,13 +19,11 @@ type Room struct {
 }
 
 type CreateRoomRequest struct {
-	RoomName    string `json:"room_name"`
-	CreatorName string `json:"creator_name"`
+	RoomName string `json:"room_name"`
 }
 
 type CreateRoomResponse struct {
-	RoomID  string `json:"room_id"`
-	Creator Player `json:"creator"`
+	RoomID string `json:"room_id"`
 }
 
 // 加入是一种很特别的请求，因为无论在比赛的什么阶段

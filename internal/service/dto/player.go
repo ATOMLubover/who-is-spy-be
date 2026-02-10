@@ -1,6 +1,5 @@
 package dto
 
-
 // 谁是卧底游戏中的玩家信息，在进入房间后有效
 type Player struct {
 	ID   string `json:"id"`
