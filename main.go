@@ -14,13 +14,13 @@ func main() {
 
 	// 初始化日志器
 	logger.InitLogger(cfg.LogLevel)
-    
-    // 组装应用状态
-    appState := state.NewAppState(
-        cfg,
-        service.NewRoomService(),
-    )
-    
-    // 启动服务器
-    http.RunServer(appState)
+
+	// 组装应用状态
+	appState := state.NewAppState(
+		cfg,
+		service.NewRoomService(),
+	)
+
+	// 启动服务器
+	http.RunServer(appState)
 }

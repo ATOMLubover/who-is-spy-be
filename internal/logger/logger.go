@@ -9,6 +9,8 @@ import (
 func InitLogger(logLevel string) {
 	cfg := zap.NewDevelopmentConfig()
 
+	cfg.DisableStacktrace = true
+
 	switch logLevel {
 	case "debug":
 		cfg.Level.SetLevel(zap.DebugLevel)

@@ -14,16 +14,25 @@ const (
 	REQ_DESCRIBE   = "Describe"
 	REQ_VOTE       = "Vote"
 	REQ_TIMEOUT    = "Timeout"
+	REQ_EXIT_GAME  = "ExitGame"
 )
 
 type RequestWrapper struct {
 	ReqType string          `json:"request_type"`
 	Data    json.RawMessage `json:"data"`
+	// NativeData carries in-process payloads (e.g., channels) that cannot be JSON marshaled.
+	NativeData any `json:"-"`
 }
 
 func TryUnwrapJoinGameRequest(wrapper RequestWrapper) *JoinGameRequest {
 	if wrapper.ReqType != REQ_JOIN_GAME {
 		return nil
+	}
+
+	if wrapper.NativeData != nil {
+		if req, ok := wrapper.NativeData.(*JoinGameRequest); ok {
+			return req
+		}
 	}
 
 	var joinGameRequest JoinGameRequest
@@ -141,6 +150,32 @@ func TryUnwrapTimeoutRequest(wrapper RequestWrapper) *TimeoutRequest {
 	return &timeoutRequest
 }
 
+func TryUnwrapExitGameRequest(wrapper RequestWrapper) *ExitGameRequest {
+	if wrapper.ReqType != REQ_EXIT_GAME {
+		return nil
+	}
+
+	if wrapper.NativeData != nil {
+		if req, ok := wrapper.NativeData.(*ExitGameRequest); ok {
+			return req
+		}
+	}
+
+	var exitGameRequest ExitGameRequest
+
+	err := json.Unmarshal(wrapper.Data, &exitGameRequest)
+	if err != nil {
+		zap.L().Error(
+			"Failed to unwrap ExitGameRequest",
+			zap.Error(err),
+			zap.Any("wrapper", wrapper),
+		)
+		return nil
+	}
+
+	return &exitGameRequest
+}
+
 // 响应类型
 const (
 	RESP_ERROR = "Error"
@@ -153,6 +188,7 @@ const (
 	RESP_GAME_STATE  = "GameState"
 	RESP_ELIMINATE   = "Eliminate"
 	RESP_GAME_RESULT = "GameResult"
+	RESP_EXIT_GAME   = "ExitGame"
 )
 
 type ResponseWrapper struct {

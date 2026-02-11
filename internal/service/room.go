@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -40,11 +39,11 @@ func (rs *RoomService) CreateRoom(
 		return nil, errors.New("房间名称不能为空")
 	}
 
-	// 生成房间 ID
-	roomID := game.GenID()[:8]
+	// Generate room ID using the last 8 characters of the UUID
+	roomID := game.GenID()[len(game.GenID())-8:]
 
 	// 创建房间对应的游戏状态机
-	doneCh := make(chan struct{})
+	doneCh := make(chan struct{}, 64)
 
 	gm := game.NewGameMachine(roomID, doneCh)
 
@@ -103,25 +102,19 @@ func (rs *RoomService) JoinRoom(
 		return nil, errors.New("房间不存在")
 	}
 
-	// 构造加入请求
+	// 构造加入请求，保留客户端可能提供的 PlayerID/Observer 字段
 	req := game.JoinGameRequest{
+		RoomID:     args.RoomID,
 		JoinerName: args.JoinerName,
+		PlayerID:   args.PlayerID,
+		Observer:   args.Observer,
 		RespCh:     respCh,
 	}
 
-	rawReq, err := json.Marshal(req)
-	if err != nil {
-		zap.L().Error(
-			"无法构造加入房间请求",
-			zap.Error(err),
-			zap.Any("args", args),
-		)
-		return nil, errors.New("无法构造加入房间请求")
-	}
-
+	// 直接传递 native payload，保留 RespCh 引用，避免 JSON 丢失通道信息。
 	wrapper := game.RequestWrapper{
-		ReqType: game.REQ_JOIN_GAME,
-		Data:    json.RawMessage(rawReq),
+		ReqType:    game.REQ_JOIN_GAME,
+		NativeData: &req,
 	}
 
 	// 发送加入请求到游戏状态机
@@ -161,6 +154,17 @@ func (rs *RoomService) JoinRoom(
 				zap.String("resp_type", resp.RespType),
 			)
 			return nil, errors.New("加入房间失败：未收到加入确认")
+		}
+
+		// 将确认响应放回通道，供 WebSocket 写协程发送给客户端
+		select {
+		case respCh <- resp:
+			// ok
+		default:
+			zap.L().Warn(
+				"无法回放加入响应：响应通道已满",
+				zap.String("room_id", args.RoomID),
+			)
 		}
 
 	case <-time.After(3 * time.Second):

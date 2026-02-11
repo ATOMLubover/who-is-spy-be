@@ -3,11 +3,19 @@ package game
 type JoinGameRequest struct {
 	RoomID     string               `json:"room_id"`
 	JoinerName string               `json:"joiner_name"`
+	// Optional client-supplied player ID for reconnecting
+	PlayerID   string               `json:"player_id,omitempty"`
+	// Optional explicit observer intent from client
+	Observer   bool                 `json:"observer,omitempty"`
 	RespCh     chan ResponseWrapper `json:"-"`
 }
 
 type JoinGameResponse struct {
-	Joiner Player `json:"joiner"`
+	RoomID   string   `json:"room_id"`
+	Stage    string   `json:"stage"`
+	Joiner   Player   `json:"joiner"`
+	Players  []Player `json:"players"`
+	MasterID string   `json:"master_id"`
 }
 
 type SetWordsRequest struct {
@@ -71,6 +79,17 @@ type GameResultResponse struct {
 	PlayerRoles map[string]string `json:"player_roles"`
 	PlayerWords map[string]string `json:"player_words"`
 }
+
 type TimeoutRequest struct {
 	Stage string `json:"stage"`
+}
+
+type ExitGameRequest struct {
+	PlayerID string                  `json:"player_id"`
+	RespCh   chan ResponseWrapper `json:"-"`
+}
+
+type ExitGameResponse struct {
+	LeftPlayerID   string `json:"left_player_id"`
+	LeftPlayerName string `json:"left_player_name"`
 }

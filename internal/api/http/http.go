@@ -11,6 +11,16 @@ import (
 
 func RunServer(appState *state.AppState) {
 	app := iris.Default()
+	
+	app.HandleDir(
+		"/", 
+		iris.Dir("./who-is-spy-fe"),
+		iris.DirOptions{
+			IndexName: "index.html",
+			SPA: true,
+			Compress: true,
+		},
+	)
 
 	api := app.Party("/api/v1")
 

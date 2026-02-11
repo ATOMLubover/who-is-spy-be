@@ -17,5 +17,5 @@ type Player struct {
 	Word string `json:"word,omitempty"`
 
 	// ReqCh  chan RequestWrapper
-	RespCh chan ResponseWrapper
+	RespCh chan ResponseWrapper `json:"-"`
 }

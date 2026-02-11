@@ -25,7 +25,7 @@ func GetConfig() *AppConfig {
 func InitConfig() *AppConfig {
 	v := viper.New()
 
-	v.SetConfigFile("app_config")
+	v.SetConfigName("app_config")
 	v.SetConfigType("json")
 	v.AddConfigPath(".")
 

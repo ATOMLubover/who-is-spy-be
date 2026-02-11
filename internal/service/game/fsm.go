@@ -21,10 +21,10 @@ type GameMachine struct {
 func NewGameMachine(roomID string, doneCh chan struct{}) *GameMachine {
 	ctx := &GameContext{
 		RoomID: roomID,
-		TmoCh:  make(chan RequestWrapper, 10),
+		TmoCh:  make(chan RequestWrapper, 64),
 	}
 
-	reqCh := make(chan RequestWrapper, 100)
+	reqCh := make(chan RequestWrapper, 64)
 
 	gm := &GameMachine{
 		ctx:       ctx,
