@@ -1,13 +1,22 @@
 package game
 
+type CreateRoomRequest struct {
+	RoomName    string `json:"room_name"`
+	CreatorName string `json:"creator_name"`
+}
+
+type CreateRoomResponse struct {
+	RoomID string `json:"room_id"`
+}
+
 type JoinGameRequest struct {
-	RoomID     string               `json:"room_id"`
-	JoinerName string               `json:"joiner_name"`
+	RoomID     string `json:"room_id"`
+	JoinerName string `json:"joiner_name"`
 	// Optional client-supplied player ID for reconnecting
-	PlayerID   string               `json:"player_id,omitempty"`
+	PlayerID string `json:"player_id,omitempty"`
 	// Optional explicit observer intent from client
-	Observer   bool                 `json:"observer,omitempty"`
-	RespCh     chan ResponseWrapper `json:"-"`
+	Observer bool                 `json:"observer,omitempty"`
+	RespCh   chan ResponseWrapper `json:"-"`
 }
 
 type JoinGameResponse struct {
@@ -24,6 +33,7 @@ type SetWordsRequest struct {
 }
 
 type SetWordsResponse struct {
+	// 为保持游戏悬念，服务器不返回实际词语，只返回空数组表示设置成功
 	WordList []string `json:"word_list"`
 }
 
@@ -32,8 +42,9 @@ type StartGameRequest struct {
 }
 
 type StartGameResponse struct {
-	AssignedRole string `json:"assigned_role"`
-	AssignedWord string `json:"assigned_word"`
+	AssignedRole string   `json:"assigned_role"`
+	AssignedWord string   `json:"assigned_word"`
+	Players      []Player `json:"players,omitempty"`
 }
 
 type DescribeRequest struct {
@@ -85,7 +96,7 @@ type TimeoutRequest struct {
 }
 
 type ExitGameRequest struct {
-	PlayerID string                  `json:"player_id"`
+	PlayerID string               `json:"player_id"`
 	RespCh   chan ResponseWrapper `json:"-"`
 }
 

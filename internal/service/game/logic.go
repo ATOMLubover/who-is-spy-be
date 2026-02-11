@@ -66,8 +66,8 @@ func (wsh *waitStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 		}
 
 		player := Player{
-			ID:   playerID,
-			Name: req.JoinerName,
+			ID:     playerID,
+			Name:   req.JoinerName,
 			RespCh: req.RespCh,
 		}
 
@@ -96,14 +96,24 @@ func (wsh *waitStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 			return errors.New("无法设置词库：只有管理员可以设置词库")
 		}
 
+		// 验证词库必须至少包含两个词：WordList[0] = 正常词，WordList[1] = 卧底词
+		if len(req.WordList) < 2 {
+			return errors.New("无法设置词库：必须提供至少两个词（索引0为正常词，索引1为卧底词）")
+		}
+
+		// 验证词语不能为空
+		if req.WordList[0] == "" || req.WordList[1] == "" {
+			return errors.New("无法设置词库：正常词和卧底词不能为空")
+		}
+
 		// 更新词库
 		ctx.WordList = req.WordList
 
-		// 发送通知
+		// 发送通知（不广播实际的词语，只通知设置成功）
 		resp := WrapResponse(
 			RESP_SET_WORDS,
 			SetWordsResponse{
-				WordList: ctx.WordList,
+				WordList: []string{}, // 不返回实际词语，保持游戏悬念
 			},
 		)
 
@@ -122,15 +132,13 @@ func (wsh *waitStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 			return errors.New("无法开始游戏：只有管理员可以开始游戏")
 		}
 
-		// 检查玩家数量
-		normalPlayerCount := 0
-		for _, p := range ctx.Players {
-			if p.Role == ROLE_UNSET {
-				normalPlayerCount++
-			}
+		// 检查词库是否已设置（必须至少包含两个词）
+		if len(ctx.WordList) < 2 || ctx.WordList[0] == "" || ctx.WordList[1] == "" {
+			return errors.New("无法开始游戏：管理员必须先设置正常词和卧底词")
 		}
 
-		if normalPlayerCount < 8 {
+		// 检查玩家数量（按存活计数，排除管理员/观察者）
+		if ctx.CountAlive() < 8 {
 			return errors.New("无法开始游戏：玩家数量不足 8 人")
 		}
 
@@ -144,35 +152,24 @@ func (wsh *waitStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 }
 
 func assignRolesAndWords(ctx *GameContext) {
-	// 根据词库，分配角色和词语
-	// 使用随机数，抽出一个谜底词和一个卧底词，剩下的玩家分配普通角色
+	// 根据管理员设置的词库，分配角色和词语
+	// WordList[0] = 正常玩家的词（谜底词）
+	// WordList[1] = 卧底玩家的词
 	var (
 		answer  string
 		spyWord string
 	)
 
-	// 保证词库至少有两个词，否则会导致 rand.IntN 参数为 0 而 panic
+	// 使用管理员设置的确定性词语
 	if len(ctx.WordList) < 2 {
-		zap.L().Warn("词库不足，使用默认词库替代", zap.String("roomID", ctx.RoomID))
-		ctx.WordList = []string{"苹果", "香蕉"}
+		zap.L().Error("词库未正确设置，无法分配角色", zap.String("roomID", ctx.RoomID))
+		// 这种情况不应该发生，因为 StartGame 已经验证过
+		return
 	}
 
-	answerIndex := rand.IntN(len(ctx.WordList))
-	answer = ctx.WordList[answerIndex]
-
-	// 去除谜底词，重新随机抽取一个卧底词
-	tempWordList := append(
-		ctx.WordList[:answerIndex],
-		ctx.WordList[answerIndex+1:]...,
-	)
-
-	if len(tempWordList) == 0 {
-		zap.L().Warn("临时词库为空，无法选择卧底词", zap.String("roomID", ctx.RoomID))
-		spyWord = ""
-	} else {
-		undercoverIndex := rand.IntN(len(tempWordList))
-		spyWord = tempWordList[undercoverIndex]
-	}
+	// 确定性分配：索引 0 为正常词，索引 1 为卧底词
+	answer = ctx.WordList[0]
+	spyWord = ctx.WordList[1]
 
 	// 抽选一个白板，一个卧底，其次为普通玩家
 	slicedPlayers := make([]*Player, 0, len(ctx.Players))
@@ -252,7 +249,7 @@ func (psh *prepStageHandler) OnEnter(ctx *GameContext) {
 	ctx.CurrentSpeakerIdx = 0
 	ctx.Votes = make(map[string]string)
 
-	// 向所有玩家广播游戏开始信息（非参与者的 role 和 word 留空）
+	// 向所有玩家广播游戏开始信息（非参与者的 role 和 word 留空；管理员额外收到 players 列表）
 	for _, p := range ctx.Players {
 		var resp ResponseWrapper
 		if p.Role != ROLE_ADMIN && p.Role != ROLE_OBSERVER {
@@ -265,14 +262,33 @@ func (psh *prepStageHandler) OnEnter(ctx *GameContext) {
 				},
 			)
 		} else {
-			// 非参与者（观察者、管理员）：role 和 word 留空
-			resp = WrapResponse(
-				RESP_START_GAME,
-				StartGameResponse{
-					AssignedRole: "",
-					AssignedWord: "",
-				},
-			)
+			// 管理员/观察者：role 和 word 留空
+			if p.Role == ROLE_ADMIN {
+				// 管理员需要拿到所有玩家信息用于单播显示
+				players := make([]Player, 0, len(ctx.Players))
+				for _, gp := range ctx.Players {
+					// 复制值（会复制 RespCh 但该字段 json:"-"，不会被序列化）
+					players = append(players, *gp)
+				}
+
+				resp = WrapResponse(
+					RESP_START_GAME,
+					StartGameResponse{
+						AssignedRole: "",
+						AssignedWord: "",
+						Players:      players,
+					},
+				)
+			} else {
+				// 非管理员观察者不需要玩家列表
+				resp = WrapResponse(
+					RESP_START_GAME,
+					StartGameResponse{
+						AssignedRole: "",
+						AssignedWord: "",
+					},
+				)
+			}
 		}
 		ctx.UnicastResp(p.ID, resp)
 	}
@@ -290,8 +306,8 @@ func (psh *prepStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 		}
 
 		player := Player{
-			ID:   playerID,
-			Name: jreq.JoinerName,
+			ID:     playerID,
+			Name:   jreq.JoinerName,
 			RespCh: jreq.RespCh,
 		}
 
@@ -356,6 +372,26 @@ func (ssh *speakStageHandler) OnEnter(ctx *GameContext) {
 		ctx.SpeakingOrder[i], ctx.SpeakingOrder[j] = ctx.SpeakingOrder[j], ctx.SpeakingOrder[i]
 	})
 
+	// 如果第一个是白板（blank），将其移动到 index=4 以避免白板成为首位发言者
+	if len(ctx.SpeakingOrder) > 1 {
+		firstID := ctx.SpeakingOrder[0]
+		if p, ok := ctx.Players[firstID]; ok && p.Role == ROLE_BLANK {
+			blankID := firstID
+			// 准备除去首位后的剩余顺序副本
+			rest := append([]string{}, ctx.SpeakingOrder[1:]...)
+			// 目标插入索引（不超过最后一位）
+			insertIdx := 4
+			if insertIdx >= len(ctx.SpeakingOrder) {
+				insertIdx = len(ctx.SpeakingOrder) - 1
+			}
+			newOrder := make([]string, 0, len(ctx.SpeakingOrder))
+			newOrder = append(newOrder, rest[:insertIdx]...)
+			newOrder = append(newOrder, blankID)
+			newOrder = append(newOrder, rest[insertIdx:]...)
+			ctx.SpeakingOrder = newOrder
+		}
+	}
+
 	ctx.CurrentSpeakerIdx = 0
 
 	// 广播进入发言阶段
@@ -385,8 +421,8 @@ func (ssh *speakStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) err
 		}
 
 		player := Player{
-			ID:   playerID,
-			Name: jreq.JoinerName,
+			ID:     playerID,
+			Name:   jreq.JoinerName,
 			RespCh: jreq.RespCh,
 		}
 
@@ -539,8 +575,8 @@ func (vsh *voteStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 		}
 
 		player := Player{
-			ID:   playerID,
-			Name: jreq.JoinerName,
+			ID:     playerID,
+			Name:   jreq.JoinerName,
 			RespCh: jreq.RespCh,
 		}
 
@@ -680,6 +716,13 @@ func (jsh *judgeStageHandler) OnEnter(ctx *GameContext) {
 
 		// 未分出胜负，继续下一轮
 		ctx.Round++
+
+		// 四轮上限：先检查胜负再执行轮数限制
+		if ctx.Round > 4 {
+			jsh.onSwitch(STAGE_FINISHED)
+			return
+		}
+
 		ctx.CurrentSpeakerIdx = 0
 		jsh.onSwitch(STAGE_SPEAKING)
 		return
@@ -727,6 +770,12 @@ func (jsh *judgeStageHandler) OnEnter(ctx *GameContext) {
 	// 未分出胜负，继续下一轮
 	ctx.Round++
 
+	// 四轮上限：先检查胜负再执行轮数限制
+	if ctx.Round > 4 {
+		jsh.onSwitch(STAGE_FINISHED)
+		return
+	}
+
 	// 10 秒后进入下一轮 Speaking
 	ctx.SetTimeout(10 * time.Second)
 }
@@ -740,8 +789,8 @@ func (jsh *judgeStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) err
 		}
 
 		player := Player{
-			ID:   playerID,
-			Name: jreq.JoinerName,
+			ID:     playerID,
+			Name:   jreq.JoinerName,
 			RespCh: jreq.RespCh,
 		}
 
@@ -837,8 +886,8 @@ func (fsh *finishStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) er
 		}
 
 		player := Player{
-			ID:   playerID,
-			Name: jreq.JoinerName,
+			ID:     playerID,
+			Name:   jreq.JoinerName,
 			RespCh: jreq.RespCh,
 		}
 
@@ -1025,8 +1074,8 @@ func onPlayerJoin(ctx *GameContext, player Player) {
 		return
 	}
 
-	// 检查当前的游戏是否已经满员
-	if len(ctx.Players) >= PLAYER_THRESHOLD+1 {
+	// 检查当前的游戏是否已经满员（按存活玩家计数，不含管理员/观察者）
+	if ctx.CountAlive() >= PLAYER_THRESHOLD {
 		// 超过玩家上限，默认变为观察者身份
 		player.Role = ROLE_OBSERVER
 
@@ -1156,11 +1205,12 @@ func onPlayerExit(ctx *GameContext, playerID string, reqRespCh chan ResponseWrap
 	// 关闭该玩家的响应通道，通知写协程退出
 	close(player.RespCh)
 
-	// 从玩家列表中移除
-	delete(ctx.Players, playerID)
+	// 将玩家标记为观察者以保留信息，防止误删导致状态不一致
+	player.Role = ROLE_OBSERVER
+	player.Word = ""
 
 	zap.L().Info(
-		"玩家已退出游戏",
+		"玩家已退出游戏（标记为观察者）",
 		zap.String("player_id", playerID),
 		zap.String("player_name", playerName),
 	)

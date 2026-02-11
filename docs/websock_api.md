@@ -58,6 +58,8 @@
 
 - `master_id` 表示房主/管理员的 player id，用于前端显示/权限控制。
 
+- `master_id` 表示房主/管理员的 player id，用于前端显示/权限控制。
+
 2. `SetWords`
 
 ```json
@@ -65,7 +67,7 @@
   "request_type": "SetWords",
   "data": {
     "set_player_id": "string", // 必填，必须是管理员 ID
-    "word_list": ["wordA", "wordB", "..."] // 必填，词库
+    "word_list": ["normalWord", "spyWord"] // 必填，只能包含两个词：索引 0 为正常词，索引 1 为卧底词
   }
 }
 ```
@@ -81,7 +83,10 @@
 }
 ```
 
+- 管理员必须先通过 `SetWords` 设置词语（至少两个词，索引 0 为正常词、索引 1 为卧底词），否则服务端会拒绝开始请求并返回错误。
 - 至少 8 个 `Unset` 玩家才允许开始，否则服务端记录错误（不会推送成功响应）。
+
+- 当管理员成功触发开始时，服务端会向每个参与者单播其 `assigned_role`/`assigned_word`。此外，**管理员会收到一条仅发给管理员的 `StartGame` 响应，响应的 `data` 中包含 `players` 字段，列出房间内所有玩家的完整信息（包含 `id`、`name`、`role`、`word`）以便管理员界面展示与确认**。普通参与者与观察者收到的 `StartGame` 响应不包含该 `players` 列表或该字段为空。
 
 4. `Describe`
 
@@ -169,12 +174,12 @@
 {
   "response_type": "SetWords",
   "data": {
-    "word_list": ["string", "..."]
+    "word_list": []
   }
 }
 ```
 
-- 只有管理员设置后广播。
+- 只有管理员可以设置词语，且服务器不会在广播中泄露实际词语；响应中的 `word_list` 为空数组或仅表示设置成功。管理员提供的词语仅用于服务端在开始阶段给参与者单播分配，公共广播不会包含敏感词语。
 
 **ExitGame**
 
@@ -195,16 +200,27 @@
 
 4. `StartGame`
 
-```json
+````json
 {
   "response_type": "StartGame",
   "data": {
     "assigned_role": "Normal|Blank|Spy",
-    "assigned_word": "string" // Blank 为空字符串
+    "assigned_word": "string", // Blank 为空字符串
+    "players": [
+      {
+        "id": "string",
+        "name": "string",
+        "role": "Admin|Unset|Normal|Blank|Spy|Observer",
+        "word": "string" // 管理员视图下可能包含真实词语；普通玩家/观察者通常不接收此字段的敏感值
+      }
+    ]
   }
 }
-```
 
+- 说明：服务端对于 `StartGame` 的发送策略如下：
+  - 私发给管理员：`data.players` 包含房间内所有玩家的完整信息（可含 `word` 和 `role`），用于管理员界面展示与审查。确保前端仅在管理员权限下渲染这些敏感字段。
+  - 私发给普通参与者：`data.assigned_role` 与 `data.assigned_word` 为该玩家的私有信息（`players` 字段为空或不返回）。
+  - 私发给观察者：通常不包含 `players`，并且 `assigned_role`/`assigned_word` 为空字符串。
 - 单播给非管理员/非观察者玩家，用于展示身份。
 
 5. `Describe`
@@ -218,7 +234,7 @@
     "message": "string"
   }
 }
-```
+````
 
 - 广播当前发言文本。
 
@@ -288,8 +304,9 @@
 
 **阶段与超时**
 
-- Waiting：可 `JoinGame`、`SetWords`、`StartGame`。首个加入者为管理员；超过 8 人或非等待阶段加入将成为 `Observer`。
-- Preparing：进入后自动分配角色/词语并单播 `StartGame`；10s 后自动进入 Speaking。
+- Waiting：可 `JoinGame`、`
+- SetWords`、`StartGame`。首个加入者为管理员；超过 8 人或非等待阶段加入将成为 `Observer`。
+- Preparing：进入后根据管理员提供的词语确定性分配角色/词语（`word_list[0]` 为正常词，`word_list[1]` 为卧底词），并单播 `StartGame` 给每位参与者（每位参与者只会收到属于自己的 `assigned_word`，白板为空字符串）；10s 后自动进入 Speaking。
 - Speaking：随机发言顺序，当前发言者 20s 超时；收到 `Describe` 后切下一位；全员发言完切 Voting。
 - Voting：30s 超时；每次 `Vote` 广播；所有存活玩家投完或超时进入 Judging。
 - Judging：统计最高票淘汰并广播 `Eliminate`；若卧底/白板胜或全出局则进入 Finished，否则回到 Speaking，回合数 +1；10s 后自动切 Speaking。

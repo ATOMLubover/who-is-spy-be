@@ -1,7 +1,7 @@
 package http
 
 import (
-	"who-is-spy-be/internal/service/dto"
+	"who-is-spy-be/internal/service/game"
 	"who-is-spy-be/internal/state"
 
 	"github.com/kataras/iris/v12"
@@ -9,7 +9,7 @@ import (
 
 func CreateRoom(appState *state.AppState) iris.Handler {
 	return func(ctx iris.Context) {
-		var req dto.CreateRoomRequest
+		var req game.CreateRoomRequest
 
 		if err := ctx.ReadJSON(&req); err != nil {
 			ctx.StatusCode(iris.StatusBadRequest)

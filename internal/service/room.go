@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"who-is-spy-be/internal/service/dto"
 	"who-is-spy-be/internal/service/game"
 
 	"go.uber.org/zap"
@@ -30,9 +29,9 @@ type gameHandle struct {
 }
 
 func (rs *RoomService) CreateRoom(
-	args dto.CreateRoomRequest,
+	args game.CreateRoomRequest,
 ) (
-	*dto.CreateRoomResponse,
+	*game.CreateRoomResponse,
 	error,
 ) {
 	if args.RoomName == "" {
@@ -81,7 +80,7 @@ func (rs *RoomService) CreateRoom(
 	rs.mu.Unlock()
 
 	// 返回创建成功的响应
-	resp := &dto.CreateRoomResponse{
+	resp := &game.CreateRoomResponse{
 		RoomID: roomID,
 	}
 
