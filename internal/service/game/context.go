@@ -37,6 +37,11 @@ func (gc *GameContext) GetAdmin() *Player {
 
 func (gc *GameContext) BroadcastResp(resp ResponseWrapper) {
 	for _, p := range gc.Players {
+		// skip players without a response channel (disconnected / cleaned-up)
+		if p.RespCh == nil {
+			continue
+		}
+
 		select {
 		case p.RespCh <- resp:
 			zap.L().Debug(
@@ -47,6 +52,7 @@ func (gc *GameContext) BroadcastResp(resp ResponseWrapper) {
 		default:
 			zap.L().Warn(
 				"发送广播响应失败：玩家响应通道已满",
+				zap.String("player_id", p.ID),
 			)
 		}
 	}

@@ -1179,31 +1179,14 @@ func onPlayerExit(ctx *GameContext, playerID string, reqRespCh chan ResponseWrap
 		return
 	}
 
-	// RespCh 匹配，这是正常的退出流程
-	// 先发送退出确认响应给该玩家
-	exitResp := WrapResponse(
-		RESP_EXIT_GAME,
-		ExitGameResponse{
-			LeftPlayerID:   playerID,
-			LeftPlayerName: playerName,
-		},
-	)
+	// 正常退出（客户端断开或服务器触发）
+	// 不要向离开的玩家发送任何广播型响应（服务器生成的 ExitGame 不应得到响应）
 
-	select {
-	case player.RespCh <- exitResp:
-		zap.L().Debug(
-			"发送退出确认响应成功",
-			zap.String("player_id", playerID),
-		)
-	default:
-		zap.L().Warn(
-			"发送退出确认响应失败：响应通道已满",
-			zap.String("player_id", playerID),
-		)
-	}
+	// 保留旧通道引用，用于后续关闭写协程
+	oldCh := player.RespCh
 
-	// 关闭该玩家的响应通道，通知写协程退出
-	close(player.RespCh)
+	// 将玩家的响应通道置为 nil，避免 BroadcastResp 向其发送消息
+	player.RespCh = nil
 
 	// 将玩家标记为观察者以保留信息，防止误删导致状态不一致
 	player.Role = ROLE_OBSERVER
@@ -1215,7 +1198,7 @@ func onPlayerExit(ctx *GameContext, playerID string, reqRespCh chan ResponseWrap
 		zap.String("player_name", playerName),
 	)
 
-	// 向其他玩家广播离开消息
+	// 向其他玩家广播离开消息（不会发送到已置为 nil 的通道）
 	leftNotif := WrapResponse(
 		RESP_EXIT_GAME,
 		ExitGameResponse{
@@ -1225,4 +1208,9 @@ func onPlayerExit(ctx *GameContext, playerID string, reqRespCh chan ResponseWrap
 	)
 
 	ctx.BroadcastResp(leftNotif)
+
+	// 关闭旧通道，通知写协程退出（如果旧通道还存在）
+	if oldCh != nil {
+		close(oldCh)
+	}
 }

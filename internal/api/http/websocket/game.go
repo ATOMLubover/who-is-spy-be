@@ -243,9 +243,10 @@ func JoinGame(appState *state.AppState) iris.Handler {
 			zap.String("player_id", playerID),
 		)
 
+		// server-generated exit should not expect a response; do not attach respCh
 		exitReq := game.ExitGameRequest{
 			PlayerID: playerID,
-			RespCh:   respCh,
+			RespCh:   nil,
 		}
 
 		exitWrapper := game.RequestWrapper{
@@ -266,35 +267,6 @@ func JoinGame(appState *state.AppState) iris.Handler {
 				zap.String("player_id", playerID),
 			)
 			// 即使发送失败也继续等待，确保资源回收
-		}
-
-		// 等待退出确认响应或超时
-		select {
-		case resp, ok := <-respCh:
-			if !ok {
-				// 通道已关闭，说明状态机已处理退出
-				zap.L().Info(
-					"响应通道已关闭，玩家退出完成",
-					zap.String("player_id", playerID),
-				)
-			} else if resp.RespType == game.RESP_EXIT_GAME {
-				zap.L().Info(
-					"收到退出确认响应",
-					zap.String("player_id", playerID),
-				)
-			} else {
-				// 可能是其他响应，继续等待
-				zap.L().Debug(
-					"收到非退出响应，继续等待",
-					zap.String("player_id", playerID),
-					zap.String("resp_type", resp.RespType),
-				)
-			}
-		case <-time.After(3 * time.Second):
-			zap.L().Warn(
-				"等待退出确认超时，强制退出",
-				zap.String("player_id", playerID),
-			)
 		}
 
 		zap.L().Info(
