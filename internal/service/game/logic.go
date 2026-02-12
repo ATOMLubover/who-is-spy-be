@@ -252,7 +252,7 @@ func (psh *prepStageHandler) OnEnter(ctx *GameContext) {
 	// 向所有玩家广播游戏开始信息（非参与者的 role 和 word 留空；管理员额外收到 players 列表）
 	for _, p := range ctx.Players {
 		var resp ResponseWrapper
-		if p.Role != ROLE_ADMIN && p.Role != ROLE_OBSERVER {
+		if p.Role != ROLE_ADMIN && !isObserverLike(p.Role) {
 			// 参与者：发送完整的角色和词语
 			resp = WrapResponse(
 				RESP_START_GAME,
@@ -372,23 +372,41 @@ func (ssh *speakStageHandler) OnEnter(ctx *GameContext) {
 		ctx.SpeakingOrder[i], ctx.SpeakingOrder[j] = ctx.SpeakingOrder[j], ctx.SpeakingOrder[i]
 	})
 
-	// 如果第一个是白板（blank），将其移动到 index=4 以避免白板成为首位发言者
+	// 确保白板（ROLE_BLANK）至少在第4位开始发言（1-based 第4位 -> 0-based index 3）。
+	// 如果玩家数量不足以放到第4位，则尽量放到最后一位。
 	if len(ctx.SpeakingOrder) > 1 {
-		firstID := ctx.SpeakingOrder[0]
-		if p, ok := ctx.Players[firstID]; ok && p.Role == ROLE_BLANK {
-			blankID := firstID
-			// 准备除去首位后的剩余顺序副本
-			rest := append([]string{}, ctx.SpeakingOrder[1:]...)
-			// 目标插入索引（不超过最后一位）
-			insertIdx := 4
-			if insertIdx >= len(ctx.SpeakingOrder) {
-				insertIdx = len(ctx.SpeakingOrder) - 1
+		// 查找白板的当前索引
+		blankIdx := -1
+		for i, id := range ctx.SpeakingOrder {
+			if p, ok := ctx.Players[id]; ok && p.Role == ROLE_BLANK {
+				blankIdx = i
+				break
 			}
-			newOrder := make([]string, 0, len(ctx.SpeakingOrder))
-			newOrder = append(newOrder, rest[:insertIdx]...)
-			newOrder = append(newOrder, blankID)
-			newOrder = append(newOrder, rest[insertIdx:]...)
-			ctx.SpeakingOrder = newOrder
+		}
+
+		if blankIdx != -1 {
+			targetIdx := 3 // 0-based 第4位
+			if targetIdx >= len(ctx.SpeakingOrder) {
+				targetIdx = len(ctx.SpeakingOrder) - 1
+			}
+
+			// 仅当白板排在目标之前时才移动（避免把白板提前）
+			if blankIdx < targetIdx {
+				blankID := ctx.SpeakingOrder[blankIdx]
+				// 从切片中移除白板
+				withoutBlank := append([]string{}, ctx.SpeakingOrder[:blankIdx]...)
+				withoutBlank = append(withoutBlank, ctx.SpeakingOrder[blankIdx+1:]...)
+
+				// 在目标位置插入白板
+				front := withoutBlank[:targetIdx]
+				rest := withoutBlank[targetIdx:]
+				newOrder := make([]string, 0, len(ctx.SpeakingOrder))
+				newOrder = append(newOrder, front...)
+				newOrder = append(newOrder, blankID)
+				newOrder = append(newOrder, rest...)
+
+				ctx.SpeakingOrder = newOrder
+			}
 		}
 	}
 
@@ -603,7 +621,7 @@ func (vsh *voteStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 			return errors.New("投票者不存在")
 		}
 
-		if voter.Role == ROLE_OBSERVER || voter.Role == ROLE_ADMIN {
+		if isObserverLike(voter.Role) || voter.Role == ROLE_ADMIN {
 			return errors.New("观察者和管理员不能投票")
 		}
 
@@ -613,7 +631,7 @@ func (vsh *voteStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) erro
 			return errors.New("被投票者不存在")
 		}
 
-		if target.Role == ROLE_OBSERVER || target.Role == ROLE_ADMIN {
+		if isObserverLike(target.Role) || target.Role == ROLE_ADMIN {
 			return errors.New("不能投票给观察者或管理员")
 		}
 
@@ -683,48 +701,29 @@ func (jsh *judgeStageHandler) OnEnter(ctx *GameContext) {
 		voteCount[targetID]++
 	}
 
-	// 找出得票最多的玩家
-	var eliminatedID string
-	maxVotes := 0
+	// 找出得票最多的玩家（处理同票和0票情况）
+	candidates := make([]string, 0)
+	maxVotes := -1 // 初始为-1以确保0票也能被选中（如果有负票逻辑，这里要注意，不过一般没有）
 
-	for targetID, count := range voteCount {
-		if count > maxVotes {
-			maxVotes = count
-			eliminatedID = targetID
+	// 遍历所有存活玩家，确保0票玩家也在候选之列
+	for _, p := range ctx.GetAlivePlayers() {
+		votes := voteCount[p.ID]
+		if votes > maxVotes {
+			maxVotes = votes
+			candidates = []string{p.ID}
+		} else if votes == maxVotes {
+			candidates = append(candidates, p.ID)
 		}
 	}
 
-	// 如果没有玩家被淘汰（无投票或票数相同），跳过淘汰逻辑
-	if eliminatedID == "" {
-		zap.L().Info("裁判阶段：无玩家被淘汰", zap.String("roomID", ctx.RoomID))
-		// 直接进行胜利条件判断
-		aliveCount := ctx.CountAlive()
-		spyAlive := ctx.IsSpyAlive()
-		blankAlive := ctx.IsBlankAlive()
-
-		// 卧底/白板方胜利：存活人数 < 4 且 卧底或白板尚在场
-		if aliveCount < 4 && (spyAlive || blankAlive) {
-			jsh.onSwitch(STAGE_FINISHED)
-			return
-		}
-
-		// 平民方胜利：卧底和白板均已出局
-		if !spyAlive && !blankAlive {
-			jsh.onSwitch(STAGE_FINISHED)
-			return
-		}
-
-		// 未分出胜负，继续下一轮
-		ctx.Round++
-
-		// 四轮上限：先检查胜负再执行轮数限制
-		if ctx.Round > 4 {
-			jsh.onSwitch(STAGE_FINISHED)
-			return
-		}
-
-		ctx.CurrentSpeakerIdx = 0
-		jsh.onSwitch(STAGE_SPEAKING)
+	// 如果有多个平票玩家，随机选择一个
+	var eliminatedID string
+	if len(candidates) > 0 {
+		eliminatedID = candidates[rand.IntN(len(candidates))]
+	} else {
+		// 理论上不可能发生（除非没有存活玩家，但那样游戏早已结束）
+		zap.L().Warn("裁判阶段：无候选玩家", zap.String("roomID", ctx.RoomID))
+		jsh.onSwitch(STAGE_FINISHED)
 		return
 	}
 
@@ -736,7 +735,18 @@ func (jsh *judgeStageHandler) OnEnter(ctx *GameContext) {
 	}
 
 	eliminatedWord := eliminated.Word
-	eliminated.Role = ROLE_OBSERVER
+
+	// 将被淘汰玩家角色标记为内部 Ob*，以便 GameResult 还原原身份
+	switch eliminated.Role {
+	case ROLE_SPY:
+		eliminated.Role = ROLE_OB_SPY
+	case ROLE_BLANK:
+		eliminated.Role = ROLE_OB_BLANK
+	case ROLE_NORMAL:
+		eliminated.Role = ROLE_OB_NORMAL
+	default:
+		eliminated.Role = ROLE_OBSERVER
+	}
 
 	// 广播淘汰信息
 	elimNotif := WrapResponse(
@@ -755,14 +765,25 @@ func (jsh *judgeStageHandler) OnEnter(ctx *GameContext) {
 	spyAlive := ctx.IsSpyAlive()
 	blankAlive := ctx.IsBlankAlive()
 
-	// 卧底/白板方胜利：存活人数 < 4 且 卧底或白板尚在场
-	if aliveCount < 4 && (spyAlive || blankAlive) {
+	zap.L().Info(
+		"判定阶段：检查胜负条件",
+		zap.String("roomID", ctx.RoomID),
+		zap.Int("alive_count", aliveCount),
+		zap.Bool("spy_alive", spyAlive),
+		zap.Bool("blank_alive", blankAlive),
+	)
+
+	// 平民方胜利：卧底和白板均已出局 -> 立即结束（优先判定）
+	if !spyAlive && !blankAlive {
+		zap.L().Info("判定阶段：平民胜利，切换 Finished", zap.String("roomID", ctx.RoomID))
 		jsh.onSwitch(STAGE_FINISHED)
 		return
 	}
 
-	// 平民方胜利：卧底和白板均已出局
-	if !spyAlive && !blankAlive {
+	// 卧底/白板方胜利：存活人数 <= 4 且 卧底或白板尚在场
+	// （当已有 4 人被淘汰时，若卧底或白板仍在场，可立即判定其为胜利方）
+	if aliveCount <= 4 && (spyAlive || blankAlive) {
+		zap.L().Info("判定阶段：卧底/白板胜利，切换 Finished", zap.String("roomID", ctx.RoomID))
 		jsh.onSwitch(STAGE_FINISHED)
 		return
 	}
@@ -857,7 +878,8 @@ func (fsh *finishStageHandler) OnEnter(ctx *GameContext) {
 
 	for _, p := range ctx.Players {
 		if p.Role != ROLE_ADMIN {
-			playerRoles[p.Name] = p.Role
+			// 将 Ob* 还原为原始身份用于结果展示
+			playerRoles[p.Name] = toOriginalRole(p.Role)
 			playerWords[p.Name] = p.Word
 		}
 	}
@@ -874,7 +896,21 @@ func (fsh *finishStageHandler) OnEnter(ctx *GameContext) {
 		},
 	)
 
+	zap.L().Info(
+		"结束阶段：广播游戏结果",
+		zap.String("roomID", ctx.RoomID),
+		zap.String("winner", winner),
+		zap.String("answer_word", ctx.AnswerWord),
+		zap.String("spy_word", ctx.SpyWord),
+		zap.Int("player_count", len(ctx.Players)),
+	)
+
 	ctx.BroadcastResp(resultResp)
+
+	zap.L().Info(
+		"结束阶段：广播游戏结果完成",
+		zap.String("roomID", ctx.RoomID),
+	)
 }
 
 func (fsh *finishStageHandler) OnHandle(ctx *GameContext, req RequestWrapper) error {
@@ -1093,7 +1129,7 @@ func onPlayerJoin(ctx *GameContext, player Player) {
 			player.Role = ROLE_ADMIN
 		} else {
 			// 如果客户端显式请求观察者，优先保留；否则成为未设置的普通玩家
-			if player.Role != ROLE_OBSERVER {
+			if !isObserverLike(player.Role) {
 				player.Role = ROLE_UNSET
 			}
 		}

@@ -8,6 +8,9 @@ const (
 	ROLE_BLANK    = "Blank"
 	ROLE_SPY      = "Spy"
 	ROLE_OBSERVER = "Observer"
+	ROLE_OB_NORMAL = "ObNormal" // eliminated normal, kept for server-internal tracking
+	ROLE_OB_SPY    = "ObSpy"    // eliminated spy, kept for server-internal tracking
+	ROLE_OB_BLANK  = "ObBlank"  // eliminated blank, kept for server-internal tracking
 )
 
 type Player struct {

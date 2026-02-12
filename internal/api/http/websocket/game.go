@@ -172,6 +172,13 @@ func JoinGame(appState *state.AppState) iris.Handler {
 						return
 					}
 
+					if resp.RespType == game.RESP_GAME_RESULT {
+						zap.L().Info(
+							"WebSocket 已发送 GameResult",
+							zap.String("client_ip", clientIP),
+						)
+					}
+
 					zap.L().Debug(
 						"发送消息",
 						zap.String("client_ip", clientIP),

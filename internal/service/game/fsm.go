@@ -52,6 +52,11 @@ func (gm *GameMachine) Start() {
 	// 执行初始 handler 的 OnEnter
 	gm.handler.OnEnter(gm.ctx)
 
+	// 处理 OnEnter 内部触发的阶段切换，避免等待下一次请求才切换
+	if gm.alignStageAfterEnter("init") {
+		return
+	}
+
 	// 进入事件循环
 	for {
 		// 从请求通道或超时通道接收事件
@@ -90,11 +95,22 @@ func (gm *GameMachine) Start() {
 
 		// 检查状态是否发生变化
 		if gm.ctx.GameStage != gm.handler.Stage() {
+			zap.L().Info(
+				"状态机：阶段切换",
+				zap.String("room_id", gm.ctx.RoomID),
+				zap.String("from", gm.handler.Stage()),
+				zap.String("to", gm.ctx.GameStage),
+			)
+
 			// 状态发生变化，执行切换
 			gm.switchStage()
 
 			// 如果切换到了结束阶段，退出循环
 			if gm.ctx.GameStage == STAGE_FINISHED {
+				zap.L().Info(
+					"状态机：进入结束阶段，准备广播结果",
+					zap.String("room_id", gm.ctx.RoomID),
+				)
 				// 执行结束阶段的 OnEnter
 				gm.handler.OnEnter(gm.ctx)
 				break
@@ -102,6 +118,11 @@ func (gm *GameMachine) Start() {
 
 			// 执行新阶段的 OnEnter
 			gm.handler.OnEnter(gm.ctx)
+
+			// 处理 OnEnter 内部触发的阶段切换，避免等待下一次请求才切换
+			if gm.alignStageAfterEnter("post-switch") {
+				break
+			}
 		}
 	}
 
@@ -149,6 +170,34 @@ func (gm *GameMachine) switchStage() {
 
 	// 更新当前 handler
 	gm.handler = newHandler
+}
+
+// alignStageAfterEnter 处理 OnEnter 内部调用 onSwitch 导致的阶段漂移，确保立即切换而不等待下一次请求
+func (gm *GameMachine) alignStageAfterEnter(reason string) bool {
+	for gm.ctx.GameStage != gm.handler.Stage() {
+		zap.L().Info(
+			"状态机：阶段切换（Enter后立即对齐）",
+			zap.String("room_id", gm.ctx.RoomID),
+			zap.String("from", gm.handler.Stage()),
+			zap.String("to", gm.ctx.GameStage),
+			zap.String("reason", reason),
+		)
+
+		gm.switchStage()
+
+		if gm.ctx.GameStage == STAGE_FINISHED {
+			zap.L().Info(
+				"状态机：进入结束阶段，准备广播结果",
+				zap.String("room_id", gm.ctx.RoomID),
+			)
+			gm.handler.OnEnter(gm.ctx)
+			return true
+		}
+
+		gm.handler.OnEnter(gm.ctx)
+	}
+
+	return false
 }
 
 func (gm *GameMachine) IsFinished() bool {

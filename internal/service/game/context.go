@@ -44,11 +44,18 @@ func (gc *GameContext) BroadcastResp(resp ResponseWrapper) {
 
 		select {
 		case p.RespCh <- resp:
-			zap.L().Debug(
-				"成功发送广播响应",
-				zap.String("player_id", p.ID),
-				zap.Any("response", resp),
-			)
+			if resp.RespType == RESP_GAME_RESULT {
+				zap.L().Info(
+					"广播 GameResult 成功",
+					zap.String("player_id", p.ID),
+				)
+			} else {
+				zap.L().Debug(
+					"成功发送广播响应",
+					zap.String("player_id", p.ID),
+					zap.Any("response", resp),
+				)
+			}
 		default:
 			zap.L().Warn(
 				"发送广播响应失败：玩家响应通道已满",
@@ -85,7 +92,7 @@ func (gc *GameContext) UnicastResp(playerID string, resp ResponseWrapper) {
 func (gc *GameContext) GetAlivePlayers() []*Player {
 	alivePlayers := make([]*Player, 0)
 	for _, p := range gc.Players {
-		if p.Role != ROLE_OBSERVER && p.Role != ROLE_ADMIN {
+		if !isObserverLike(p.Role) && p.Role != ROLE_ADMIN {
 			alivePlayers = append(alivePlayers, p)
 		}
 	}
@@ -96,7 +103,7 @@ func (gc *GameContext) GetAlivePlayers() []*Player {
 func (gc *GameContext) CountAlive() int {
 	count := 0
 	for _, p := range gc.Players {
-		if p.Role != ROLE_OBSERVER && p.Role != ROLE_ADMIN {
+		if !isObserverLike(p.Role) && p.Role != ROLE_ADMIN {
 			count++
 		}
 	}

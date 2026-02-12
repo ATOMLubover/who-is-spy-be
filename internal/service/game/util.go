@@ -28,10 +28,13 @@ func mustMarshal(v any) json.RawMessage {
 // sanitizePlayer 创建玩家的公开视图副本，清除敏感信息（Word）
 // 注意：Role 字段保留，用于显示身份徽章（如 Admin/Observer）
 func sanitizePlayer(p *Player) Player {
+	// 将内部的 Ob* 角色对外统一显示为 Observer
+	role := toPublicRole(p.Role)
+
 	return Player{
 		ID:     p.ID,
 		Name:   p.Name,
-		Role:   p.Role,
+		Role:   role,
 		Word:   "", // 清空敏感字段
 		RespCh: nil,
 	}
@@ -44,4 +47,38 @@ func buildPublicPlayersList(ctx *GameContext) []Player {
 		players = append(players, sanitizePlayer(p))
 	}
 	return players
+}
+
+// toPublicRole 将内部 Ob* 角色统一映射为 Observer，用于对外广播的状态同步
+func toPublicRole(role string) string {
+	switch role {
+	case ROLE_OB_NORMAL, ROLE_OB_SPY, ROLE_OB_BLANK:
+		return ROLE_OBSERVER
+	default:
+		return role
+	}
+}
+
+// toOriginalRole 将内部 Ob* 角色还原为被淘汰前的身份，用于 GameResult
+func toOriginalRole(role string) string {
+	switch role {
+	case ROLE_OB_NORMAL:
+		return ROLE_NORMAL
+	case ROLE_OB_SPY:
+		return ROLE_SPY
+	case ROLE_OB_BLANK:
+		return ROLE_BLANK
+	default:
+		return role
+	}
+}
+
+// isObserverLike 标记所有观战/淘汰态的角色
+func isObserverLike(role string) bool {
+	switch role {
+	case ROLE_OBSERVER, ROLE_OB_NORMAL, ROLE_OB_SPY, ROLE_OB_BLANK:
+		return true
+	default:
+		return false
+	}
 }
